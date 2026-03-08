@@ -20,14 +20,12 @@
             color: white;
         }
 
-        /* Экран с просьбой повернуть телефон */
         #rotate-prompt {
             position: absolute; top: 0; left: 0; right: 0; bottom: 0;
             display: flex; flex-direction: column; justify-content: center; align-items: center;
             background: #13131a; z-index: 100; text-align: center; padding: 20px;
         }
 
-        /* Иконка поворота экрана */
         .rotate-icon {
             width: 64px; height: 64px; margin-bottom: 20px;
             animation: rotatePhone 2s ease-in-out infinite;
@@ -39,14 +37,12 @@
             100% { transform: rotate(-90deg); }
         }
 
-        /* Оболочка книги */
         #book-wrapper {
             position: absolute; top: 0; left: 0; right: 0; bottom: 0;
             display: flex; justify-content: center; align-items: center;
             padding: 20px; opacity: 0; transition: opacity 1s;
         }
 
-        /* Логика скрытия/показа в зависимости от ориентации экрана */
         @media screen and (orientation: portrait) {
             #rotate-prompt { display: flex; }
             #book-wrapper, #loading-screen { display: none !important; }
@@ -54,20 +50,31 @@
 
         @media screen and (orientation: landscape) {
             #rotate-prompt { display: none; }
-            /* loading-screen и book-wrapper управляются через JS */
         }
 
         .flip-book { 
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7); 
         }
 
+        /* МАГИЯ ПРОТИВ ГЛЮКОВ И БЕЛЫХ ЭКРАНОВ */
         .page {
             background-color: #fff; 
             overflow: hidden; 
             position: relative;
-            background-size: 100% 100%; 
-            background-position: center;
-            background-repeat: no-repeat;
+            /* Включаем аппаратное ускорение видеокарты телефона */
+            transform: translateZ(0);
+            -webkit-transform: translateZ(0);
+            backface-visibility: hidden;
+            -webkit-backface-visibility: hidden;
+            will-change: transform;
+        }
+
+        .page img {
+            width: 100%;
+            height: 100%;
+            object-fit: fill; /* Картинка четко по размеру страницы */
+            pointer-events: none; /* Чтобы не мешало кликать */
+            display: block;
         }
 
         .page.--left { border-right: 0; box-shadow: inset -10px 0 30px -10px rgba(0, 0, 0, 0.3); }
@@ -82,26 +89,22 @@
 </head>
 <body>
 
-    <!-- Заглушка для портретного режима -->
     <div id="rotate-prompt">
         <svg class="rotate-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 10a8 8 0 0116 0"></path></svg>
         <h2 class="text-2xl font-bold mb-2">Поверните телефон</h2>
         <p class="text-gray-400">Книга создана для чтения в горизонтальном формате, чтобы вы видели красивые развороты.</p>
     </div>
 
-    <!-- Экран загрузки -->
     <div id="loading-screen">
         <div class="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-indigo-400 mb-6"></div>
-        <p id="loading-text" class="text-indigo-200 text-lg font-medium">Открываем книгу...</p>
+        <p id="loading-text" class="text-indigo-200 text-lg font-medium">Создаём магию...</p>
     </div>
 
-    <!-- Контейнер для книги -->
     <div id="book-wrapper">
         <div class="flip-book" id="flip-book"></div>
     </div>
 
     <script>
-        // Раскрываем Telegram Web App на весь экран
         if (window.Telegram && window.Telegram.WebApp) {
             window.Telegram.WebApp.ready();
             window.Telegram.WebApp.expand(); 
@@ -111,7 +114,7 @@
         const PDF_URL = './book.pdf'; 
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-        let pageFlipInstance = null; // Сохраняем книгу, чтобы листать её кликами
+        let pageFlipInstance = null;
 
         async function initBook() {
             const flipBookDiv = document.getElementById('flip-book');
@@ -132,16 +135,15 @@
                 const firstViewport = firstPage.getViewport({ scale: 1.0 });
                 const aspectRatio = firstViewport.height / firstViewport.width;
                 
-                // Задаем базовые пропорции страницы (книга сама подстроит их под любой экран)
-                const baseWidth = 400;
+                const baseWidth = window.innerWidth > window.innerHeight ? window.innerWidth * 0.4 : 400;
                 const baseHeight = baseWidth * aspectRatio;
 
                 for (let i = 1; i <= numPages; i++) {
-                    loadingText.innerText = `Подготовка страницы ${i} из ${numPages}...`;
+                    loadingText.innerText = `Рисуем страницу ${i} из ${numPages}...`;
                     const page = await pdf.getPage(i);
                     
-                    // Делаем масштаб поменьше, чтобы не перегрузить память
-                    const safeScale = Math.min(1.0, 600 / firstViewport.width);
+                    // Жестко ограничиваем качество для плавной анимации
+                    const safeScale = Math.min(1.0, 700 / firstViewport.width);
                     const viewport = page.getViewport({ scale: safeScale });
                     
                     const canvas = document.createElement('canvas');
@@ -154,12 +156,15 @@
 
                     await page.render({ canvasContext: context, viewport: viewport }).promise;
                     
-                    // Максимально сжимаем для экономии памяти телефона
                     const imageUrl = canvas.toDataURL('image/jpeg', 0.6);
 
                     const pageDiv = document.createElement('div');
                     pageDiv.className = 'page';
-                    pageDiv.style.backgroundImage = `url(${imageUrl})`;
+                    
+                    // ВСТАВЛЯЕМ КАК НАСТОЯЩУЮ КАРТИНКУ - 100% ГАРАНТИЯ ОТОБРАЖЕНИЯ
+                    const imgElement = document.createElement('img');
+                    imgElement.src = imageUrl;
+                    pageDiv.appendChild(imgElement);
                     
                     flipBookDiv.appendChild(pageDiv);
                 }
@@ -171,15 +176,14 @@
                     flipBookDiv.appendChild(emptyPage);
                 }
 
-                loadingText.innerText = "Склеиваем страницы...";
+                loadingText.innerText = "Открываем...";
 
-                // Запускаем перелистывание
                 pageFlipInstance = new St.PageFlip(flipBookDiv, {
                     width: baseWidth, 
                     height: baseHeight, 
-                    size: "stretch", // ВОТ ТУТ БЫЛА МОЯ ОШИБКА! Слово fit крашило всё. 
-                    minWidth: 200, maxWidth: 800, 
-                    minHeight: 300, maxHeight: 1000,
+                    size: "stretch", 
+                    minWidth: 200, maxWidth: 1000, 
+                    minHeight: 300, maxHeight: 1500,
                     showCover: true, 
                     mobileScrollSupport: false,
                     usePortrait: false, 
@@ -197,21 +201,14 @@
 
             } catch (error) {
                 console.error(error);
-                // Теперь, если что-то не так, он напишет НАСТОЯЩУЮ причину, а не глупость
-                loadingText.innerHTML = `<span class="text-red-400 text-sm">Ошибка: ${error.message}</span>`;
+                loadingText.innerHTML = `<span class="text-red-400 text-sm font-bold">Упс, ошибка: ${error.message}</span>`;
             }
         }
 
-        // ==========================================
-        // ЛИСТАНИЕ ПО КЛИКУ НА КРАЯ ЭКРАНА
-        // ==========================================
         document.getElementById('book-wrapper').addEventListener('click', (e) => {
-            if (!pageFlipInstance) return; // Если книга еще не загрузилась, ничего не делаем
-            
+            if (!pageFlipInstance) return;
             const clickX = e.clientX;
             const screenWidth = window.innerWidth;
-            
-            // Если кликнули в правой половине экрана - вперед, в левой - назад
             if (clickX > screenWidth / 2) {
                 pageFlipInstance.flipNext();
             } else {
@@ -219,7 +216,6 @@
             }
         });
 
-        // Запуск
         initBook();
     </script>
 </body>
