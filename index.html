@@ -57,8 +57,12 @@
             const bookContainer = document.getElementById('book-container');
 
             try {
-                // Загружаем PDF
-                const loadingTask = pdfjsLib.getDocument(PDF_URL);
+                // Загружаем PDF с дополнительными настройками стабильности
+                const loadingTask = pdfjsLib.getDocument({
+                    url: PDF_URL,
+                    cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
+                    cMapPacked: true
+                });
                 const pdf = await loadingTask.promise;
                 const numPages = pdf.numPages;
 
@@ -66,28 +70,42 @@
                 for (let i = 1; i <= numPages; i++) {
                     const page = await pdf.getPage(i);
                     
-                    let viewport = page.getViewport({ scale: 1.0 }); 
-                    if (viewport.width > 1200) {
-                        viewport = page.getViewport({ scale: 1200 / viewport.width });
-                    }
+                    // ЖЕСТКО ограничиваем размер холста!
+                    // Иначе телефон сойдет с ума от нехватки памяти при отрисовке скана.
+                    const viewportOriginal = page.getViewport({ scale: 1.0 }); 
+                    const MAX_WIDTH = 800; // Безопасная ширина для мобилок
+                    const safeScale = Math.min(1.5, MAX_WIDTH / viewportOriginal.width);
+                    const viewport = page.getViewport({ scale: safeScale });
                     
                     const canvas = document.createElement('canvas');
                     const context = canvas.getContext('2d');
                     canvas.width = viewport.width;
                     canvas.height = viewport.height;
 
+                    // ВАЖНО 1: Заливаем фон белым, чтобы спасти прозрачные PDF
+                    context.fillStyle = '#ffffff';
+                    context.fillRect(0, 0, canvas.width, canvas.height);
+
+                    // Рисуем PDF
                     await page.render({ canvasContext: context, viewport: viewport }).promise;
                     
                     const pageDiv = document.createElement('div');
                     pageDiv.className = 'page';
-                    pageDiv.style.backgroundImage = `url(${canvas.toDataURL('image/jpeg', 0.8)})`;
+                    
+                    // ВАЖНО 2: Вставляем холст напрямую! Никаких base64-кодировок, убивающих память.
+                    canvas.style.width = '100%';
+                    canvas.style.height = '100%';
+                    canvas.style.objectFit = 'contain'; // Картинка не обрежется, а впишется в страницу
+                    pageDiv.appendChild(canvas);
+
                     flipBookDiv.appendChild(pageDiv);
                 }
 
-                // Делаем четное количество страниц
+                // Делаем четное количество страниц (для 3D-эффекта)
                 if (numPages % 2 !== 0) {
                     const emptyPage = document.createElement('div');
                     emptyPage.className = 'page';
+                    emptyPage.style.backgroundColor = '#ffffff'; // Белая пустая страница
                     flipBookDiv.appendChild(emptyPage);
                 }
 
@@ -113,7 +131,7 @@
             }
         }
 
-        // Запускаем!
+        // Запускаем магию!
         initBook();
     </script>
 </body>
