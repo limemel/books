@@ -108,7 +108,7 @@
                 {
                     id: 'book1',
                     title: 'Мой PDF Файл',
-                    pdfUrl: './book.pdf'
+                    pdfUrl: 'https://raw.githubusercontent.com/mozilla/pdf.js/ba2edeae/web/compressed.tracemonkey-pldi-09.pdf' // ТУТ ВСТАВЬ СВОЮ ССЫЛКУ НА PDF!
                 }
                 // Пример добавления второй книги (раскомментируй, чтобы появилась кнопка):
                 // ,{
@@ -243,8 +243,12 @@
                     const pageText = textContent.items.map(item => item.str).join(' ');
                     pageTexts.push(pageText);
 
-                    // Рендерим картинку через Canvas
-                    const viewport = page.getViewport({ scale: 1.5 }); // Качество
+                    // Рендерим картинку через Canvas (Сжимаем размер для телефона, чтобы не было белых экранов!)
+                    let viewport = page.getViewport({ scale: 1.0 }); 
+                    if (viewport.width > 1200) {
+                        // Если скан огромный, насильно уменьшаем его
+                        viewport = page.getViewport({ scale: 1200 / viewport.width });
+                    }
                     const canvas = document.createElement('canvas');
                     const context = canvas.getContext('2d');
                     canvas.width = viewport.width;
@@ -293,6 +297,11 @@
         }
 
         // Логика Озвучки
+        let availableVoices = [];
+        window.speechSynthesis.onvoiceschanged = () => {
+            availableVoices = window.speechSynthesis.getVoices();
+        };
+
         function readTextForPage(pageIndex) {
             currentSynth.cancel(); // Останавливаем старую речь
             
@@ -305,7 +314,13 @@
                 // Пытаемся прочитать обе развернутые страницы (левую и правую)
                 const leftText = pageTexts[pageIndex] || "";
                 const rightText = pageTexts[pageIndex + 1] || "";
-                textToRead = `${leftText}. ${rightText}`;
+                textToRead = `${leftText} ${rightText}`;
+            }
+
+            // Проверяем, есть ли тут вообще реальный текст (буквы), а не просто точки
+            const lettersOnly = textToRead.replace(/[^а-яА-Яa-zA-Z]/g, '');
+            if (pageIndex > 0 && lettersOnly.length < 5) {
+                textToRead = "Ой, здесь только картинки, читай глазками!"; // Что скажет робот, если это скан
             }
 
             if (textToRead.trim().length > 0) {
@@ -313,6 +328,18 @@
                 utterance.lang = CONFIG.voice.language;
                 utterance.pitch = CONFIG.voice.pitch;
                 utterance.rate = CONFIG.voice.rate;
+
+                // Ищем самый "человечный" голос из доступных на телефоне
+                if (availableVoices.length === 0) availableVoices = window.speechSynthesis.getVoices();
+                const ruVoices = availableVoices.filter(v => v.lang.includes('ru'));
+                
+                // Пытаемся найти премиум-голос
+                const bestVoice = ruVoices.find(v => v.name.includes('Premium') || v.name.includes('Google') || v.name.includes('Milena') || v.name.includes('Yuri')) || ruVoices[0];
+                
+                if (bestVoice) {
+                    utterance.voice = bestVoice;
+                }
+
                 currentSynth.speak(utterance);
             }
         }
