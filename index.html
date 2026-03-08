@@ -15,10 +15,9 @@
             margin: 0; padding: 0; width: 100%; height: 100%;
             overflow: hidden; 
             background: radial-gradient(circle at center, #2b2b36 0%, #13131a 100%);
-            touch-action: none; /* Запрещаем браузеру любые прокрутки */
+            touch-action: none;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             color: white;
-            /* Намертво блокируем выделение текста и свайпы */
             user-select: none;
             -webkit-user-select: none;
         }
@@ -43,7 +42,7 @@
         #book-wrapper {
             position: absolute; top: 0; left: 0; right: 0; bottom: 0;
             display: flex; justify-content: center; align-items: center;
-            padding: 20px; opacity: 0; transition: opacity 1s;
+            padding: 10px; opacity: 0; transition: opacity 1s;
         }
 
         @media screen and (orientation: portrait) {
@@ -93,7 +92,7 @@
     <div id="rotate-prompt">
         <svg class="rotate-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 10a8 8 0 0116 0"></path></svg>
         <h2 class="text-2xl font-bold mb-2">Поверните телефон</h2>
-        <p class="text-gray-400">Книга создана для чтения в горизонтальном формате, чтобы вы видели красивые развороты.</p>
+        <p class="text-gray-400">Пожалуйста, переверните устройство горизонтально.</p>
     </div>
 
     <div id="loading-screen">
@@ -106,23 +105,18 @@
     </div>
 
     <script>
-        // =========================================================
-        // ЖЕСТКАЯ БЛОКИРОВКА ШТОРКИ ТЕЛЕГРАМА (Чтобы не слетала вниз)
-        // =========================================================
+        // Блокировка шторки Telegram
         if (window.Telegram && window.Telegram.WebApp) {
             window.Telegram.WebApp.ready();
             window.Telegram.WebApp.expand(); 
             window.Telegram.WebApp.setHeaderColor('#13131a'); 
             
-            // Запрещаем вертикальные свайпы (шторка больше не закроется случайно!)
             if (window.Telegram.WebApp.disableVerticalSwipes) {
                 window.Telegram.WebApp.disableVerticalSwipes();
             }
-            // Предупреждаем при попытке закрыть, чтобы не смахнуть случайно
             window.Telegram.WebApp.isClosingConfirmationEnabled = true;
         }
 
-        // Намертво запрещаем браузеру тянуть страницу вниз
         document.addEventListener('touchmove', function(e) {
             e.preventDefault();
         }, { passive: false });
@@ -148,22 +142,19 @@
                 const pdf = await loadingTask.promise;
                 const numPages = pdf.numPages;
 
-                const firstPage = await pdf.getPage(1);
-                const firstViewport = firstPage.getViewport({ scale: 1.0 });
+                // Берем пропорции не первой страницы (вдруг она узкая), а второй, где точно разворот!
+                const samplePage = await pdf.getPage(numPages > 1 ? 2 : 1);
+                const sampleViewport = samplePage.getViewport({ scale: 1.0 });
+                const aspectRatio = sampleViewport.height / sampleViewport.width;
                 
-                // УМНЫЙ ДЕТЕКТОР РАЗВОРОТОВ (Исправляет баг "4 страницы")
-                // Если ширина страницы больше высоты, значит твой PDF уже сохранен разворотами!
-                const isPdfAlreadySpread = firstViewport.width > firstViewport.height;
-                const aspectRatio = firstViewport.height / firstViewport.width;
-                
-                const baseWidth = window.innerWidth > window.innerHeight ? window.innerWidth * 0.4 : 400;
+                const baseWidth = window.innerWidth > window.innerHeight ? window.innerWidth * 0.8 : 800;
                 const baseHeight = baseWidth * aspectRatio;
 
                 for (let i = 1; i <= numPages; i++) {
                     loadingText.innerText = `Рисуем страницу ${i} из ${numPages}...`;
                     const page = await pdf.getPage(i);
                     
-                    const safeScale = Math.min(1.0, 700 / firstViewport.width);
+                    const safeScale = Math.min(1.0, 1000 / sampleViewport.width);
                     const viewport = page.getViewport({ scale: safeScale });
                     
                     const canvas = document.createElement('canvas');
@@ -176,7 +167,7 @@
 
                     await page.render({ canvasContext: context, viewport: viewport }).promise;
                     
-                    const imageUrl = canvas.toDataURL('image/jpeg', 0.6);
+                    const imageUrl = canvas.toDataURL('image/jpeg', 0.7);
 
                     const pageDiv = document.createElement('div');
                     pageDiv.className = 'page';
@@ -188,27 +179,22 @@
                     flipBookDiv.appendChild(pageDiv);
                 }
 
-                // Добавляем пустую страницу, только если книга не склеена разворотами
-                if (numPages % 2 !== 0 && !isPdfAlreadySpread) {
-                    const emptyPage = document.createElement('div');
-                    emptyPage.className = 'page';
-                    emptyPage.style.backgroundColor = '#ffffff';
-                    flipBookDiv.appendChild(emptyPage);
-                }
-
                 loadingText.innerText = "Открываем...";
 
                 pageFlipInstance = new St.PageFlip(flipBookDiv, {
                     width: baseWidth, 
                     height: baseHeight, 
                     size: "stretch", 
-                    minWidth: 200, maxWidth: 1000, 
-                    minHeight: 300, maxHeight: 1500,
-                    // Если PDF уже разворотами, отключаем обложку и показываем по 1 листу (чтобы не было 4 страниц!)
-                    showCover: !isPdfAlreadySpread, 
-                    usePortrait: isPdfAlreadySpread, 
+                    minWidth: 300, maxWidth: 2000, 
+                    minHeight: 200, maxHeight: 1500,
+                    
+                    // === ЖЕСТКИЕ НАСТРОЙКИ, КОТОРЫЕ ИСПРАВЛЯЮТ ГЛЮКИ ===
+                    showCover: false, // НИКАКИХ обложек, из-за них съезжали клики!
+                    usePortrait: true, // ЖЕСТКО показываем ровно 1 лист (разворот) за раз!
+                    // ====================================================
+
                     mobileScrollSupport: false,
-                    maxShadowOpacity: 0.5, 
+                    maxShadowOpacity: 0.3, 
                     drawShadow: true
                 });
 
@@ -226,14 +212,19 @@
             }
         }
 
+        // Клики тоже обновила: теперь 1 клик = 1 страница!
         document.getElementById('book-wrapper').addEventListener('click', (e) => {
             if (!pageFlipInstance) return;
             const clickX = e.clientX;
             const screenWidth = window.innerWidth;
+            
+            // Защита от двойных нажатий (дребезга)
+            if (pageFlipInstance.getFlipState() !== 'read') return;
+
             if (clickX > screenWidth / 2) {
-                pageFlipInstance.flipNext();
+                pageFlipInstance.flipNext(); // 1 клик вперед
             } else {
-                pageFlipInstance.flipPrev();
+                pageFlipInstance.flipPrev(); // 1 клик назад
             }
         });
 
