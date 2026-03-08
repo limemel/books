@@ -140,7 +140,8 @@
                     loadingText.innerText = `Подготовка страницы ${i} из ${numPages}...`;
                     const page = await pdf.getPage(i);
                     
-                    const safeScale = Math.min(1.5, 1200 / firstViewport.width);
+                    // Уменьшаем масштаб, чтобы не перегрузить память телефона
+                    const safeScale = Math.min(1.0, 800 / firstViewport.width);
                     const viewport = page.getViewport({ scale: safeScale });
                     
                     const canvas = document.createElement('canvas');
@@ -153,13 +154,22 @@
 
                     await page.render({ canvasContext: context, viewport: viewport }).promise;
                     
-                    // Надежный способ картинки без глюков памяти
-                    const imageUrl = canvas.toDataURL('image/jpeg', 0.75);
+                    // Создаем легкую ссылку на картинку (решает проблему памяти)
+                    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.8));
+                    const imageUrl = URL.createObjectURL(blob);
 
                     const pageDiv = document.createElement('div');
                     pageDiv.className = 'page';
-                    pageDiv.style.backgroundImage = `url(${imageUrl})`;
                     
+                    // Используем тег <img> вместо background-image (исправляет баг пустых страниц в Telegram)
+                    const img = document.createElement('img');
+                    img.src = imageUrl;
+                    img.style.width = '100%';
+                    img.style.height = '100%';
+                    img.style.objectFit = 'fill';
+                    img.style.pointerEvents = 'none'; // Не мешает кликам для перелистывания
+                    
+                    pageDiv.appendChild(img);
                     flipBookDiv.appendChild(pageDiv);
                 }
 
