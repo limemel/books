@@ -132,15 +132,15 @@
                 const firstViewport = firstPage.getViewport({ scale: 1.0 });
                 const aspectRatio = firstViewport.height / firstViewport.width;
                 
-                // Настраиваем размер страницы под горизонтальный экран
-                const baseHeight = window.innerHeight > window.innerWidth ? window.innerWidth * 0.8 : window.innerHeight * 0.8;
-                const baseWidth = baseHeight / aspectRatio;
+                // Задаем базовые пропорции страницы (книга сама подстроит их под любой экран)
+                const baseWidth = 400;
+                const baseHeight = baseWidth * aspectRatio;
 
                 for (let i = 1; i <= numPages; i++) {
                     loadingText.innerText = `Подготовка страницы ${i} из ${numPages}...`;
                     const page = await pdf.getPage(i);
                     
-                    // Уменьшаем масштаб, чтобы не перегрузить память телефона
+                    // Уменьшаем масштаб, чтобы не перегрузить память
                     const safeScale = Math.min(1.0, 800 / firstViewport.width);
                     const viewport = page.getViewport({ scale: safeScale });
                     
@@ -154,22 +154,13 @@
 
                     await page.render({ canvasContext: context, viewport: viewport }).promise;
                     
-                    // Создаем легкую ссылку на картинку (решает проблему памяти)
-                    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.8));
-                    const imageUrl = URL.createObjectURL(blob);
+                    // ВОЗВРАЩАЕМ ТОТ САМЫЙ МЕТОД, КОТОРЫЙ 100% РАБОТАЛ И ПОКАЗЫВАЛ КАРТИНКИ ИЗНАЧАЛЬНО!
+                    const imageUrl = canvas.toDataURL('image/jpeg', 0.85);
 
                     const pageDiv = document.createElement('div');
                     pageDiv.className = 'page';
+                    pageDiv.style.backgroundImage = `url(${imageUrl})`;
                     
-                    // Используем тег <img> вместо background-image (исправляет баг пустых страниц в Telegram)
-                    const img = document.createElement('img');
-                    img.src = imageUrl;
-                    img.style.width = '100%';
-                    img.style.height = '100%';
-                    img.style.objectFit = 'fill';
-                    img.style.pointerEvents = 'none'; // Не мешает кликам для перелистывания
-                    
-                    pageDiv.appendChild(img);
                     flipBookDiv.appendChild(pageDiv);
                 }
 
