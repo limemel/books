@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Моя Волшебная Книга: PDF Версия</title>
+    
+    <!-- Стили Tailwind -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Библиотека для перелистывания -->
+    <script src="https://cdn.jsdelivr.net/npm/page-flip/dist/js/page-flip.browser.min.js"></script>
+    <!-- Библиотека для работы с PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+    <style>
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            overflow: hidden; background-color: #1a1a2e;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            touch-action: none;
+        }
+
+        .flip-book { box-shadow: 0 0 20px rgba(0, 0, 0, 0.8); }
+        .page {
+            background-color: #fff; border: solid 1px #e8e8e8;
+            overflow: hidden; position: relative;
+            background-size: cover; background-position: center;
+        }
+        .page.--left { border-right: 0; box-shadow: inset -7px 0 30px -7px rgba(0, 0, 0, 0.4); }
+        .page.--right { border-left: 0; box-shadow: inset 7px 0 30px -7px rgba(0, 0, 0, 0.4); }
+
+        .overlay {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            z-index: 50; transition: opacity 0.5s ease-out; background: #1a1a2e;
+        }
+
+        /* Кнопки меню книг */
+        .book-menu {
+            position: absolute; top: 20px; left: 20px; z-index: 60;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Меню со списком книг (скрыто по умолчанию) -->
+    <div id="book-menu" class="book-menu hidden">
+        <button id="menu-btn" class="bg-white/10 backdrop-blur text-white px-4 py-2 rounded-lg border border-white/20 hover:bg-white/20 transition">
+            📚 Другие книги
+        </button>
+        <div id="menu-dropdown" class="hidden absolute top-12 left-0 w-64 bg-white rounded-lg shadow-xl overflow-hidden text-black">
+            <!-- Сюда будут добавляться кнопки книг -->
+            <div id="books-list" class="flex flex-col"></div>
+        </div>
+    </div>
+
+    <!-- Экран загрузки (пока парсится PDF) -->
+    <div id="loading-screen" class="overlay">
+        <div class="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-indigo-500 mb-4"></div>
+        <p id="loading-text" class="text-white text-lg">Загружаем магию из PDF...</p>
+    </div>
+
+    <!-- Стартовый экран (для запуска звука) -->
+    <div id="start-screen" class="overlay hidden">
+        <h1 id="start-title" class="text-3xl font-bold text-white mb-6 text-center px-4">Моя Волшебная Книга</h1>
+        <p class="text-gray-300 mb-8 text-center px-6">Включи звук, книга сама прочитает текст ✨</p>
+        <button id="start-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 px-8 rounded-full shadow-lg transform transition hover:scale-105">
+            Открыть и Слушать
+        </button>
+    </div>
+
+    <!-- Контейнер для книги -->
+    <div class="book-container absolute inset-0 flex justify-center items-center opacity-0 transition-opacity duration-1000" id="book-container">
+        <div class="flip-book" id="flip-book"></div>
+    </div>
+
+    <script type="module">
+        // Импортируем Firebase (тебе не нужно это трогать)
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // =========================================================================
+        // 🔧 БЛОК НАСТРОЕК: ПОМЕНЯЙ ЭТИ ДАННЫЕ НА СВОИ
+        // =========================================================================
+        const CONFIG = {
+            
+            // 1. НАСТРОЙКИ FIREBASE (Впиши свои ключи, когда создашь проект)
+            // Если оставить пустым, будут использоваться книги из списка ниже.
+            firebase: {
+                apiKey: "", 
+                authDomain: "",
+                projectId: "",
+                storageBucket: "",
+                messagingSenderId: "",
+                appId: ""
+            },
+            
+            // Настройка пути к базе данных Firebase (не меняй без необходимости)
+            // По правилам мы должны хранить данные публично по этому пути
+            firebaseCollectionPath: "books", 
+            appIdFallback: "my-storybook-app", 
+
+            // 2. СПИСОК КНИГ (Заглушка, если нет Firebase или он пустой)
+            // Важно: ссылки на PDF должны быть прямыми и поддерживать CORS (отдавать файлы другим сайтам).
+            // Лучше всего положить файл book.pdf в ту же папку, что и код, и написать pdfUrl: './book.pdf'
+            books: [
+                {
+                    id: 'book1',
+                    title: 'Мой PDF Файл',
+                    pdfUrl: './book.pdf'
+                }
+                // Пример добавления второй книги (раскомментируй, чтобы появилась кнопка):
+                // ,{
+                //     id: 'book2',
+                //     title: 'Вторая сказка',
+                //     pdfUrl: 'https://твоя-ссылка-на-второй-pdf.pdf'
+                // }
+            ],
+
+            // 3. НАСТРОЙКИ ОЗВУЧКИ (Робот, читающий текст)
+            voice: {
+                language: 'ru-RU', // ru-RU для русского, en-US для английского
+                pitch: 1.1,        // Высота голоса (0.1 - 2)
+                rate: 0.9          // Скорость чтения (0.1 - 2)
+            }
+        };
+        // =========================================================================
+        // 🛑 ДАЛЬШЕ КОД ТРОГАТЬ НЕ ОБЯЗАТЕЛЬНО (МАГИЯ ПРОИСХОДИТ ТУТ)
+        // =========================================================================
+
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        let currentPageFlip = null;
+        let pageTexts = []; // Текст каждой страницы
+        let currentSynth = window.speechSynthesis;
+
+        // UI Элементы
+        const loadingScreen = document.getElementById('loading-screen');
+        const startScreen = document.getElementById('start-screen');
+        const bookContainer = document.getElementById('book-container');
+        const flipBookDiv = document.getElementById('flip-book');
+        const startBtn = document.getElementById('start-btn');
+        const startTitle = document.getElementById('start-title');
+        const loadingText = document.getElementById('loading-text');
+        
+        // Меню
+        const bookMenu = document.getElementById('book-menu');
+        const menuBtn = document.getElementById('menu-btn');
+        const menuDropdown = document.getElementById('menu-dropdown');
+        const booksListDiv = document.getElementById('books-list');
+
+        menuBtn.addEventListener('click', () => menuDropdown.classList.toggle('hidden'));
+
+        async function initApp() {
+            let books = CONFIG.books;
+
+            // Пробуем подключить Firebase, если есть ключ
+            if (CONFIG.firebase.apiKey) {
+                loadingText.innerText = "Подключаемся к базе данных...";
+                try {
+                    const app = initializeApp(CONFIG.firebase);
+                    const auth = getAuth(app);
+                    const db = getFirestore(app);
+                    
+                    // Анонимная авторизация (требование безопасности)
+                    await signInAnonymously(auth);
+                    
+                    // Получаем книги из базы
+                    const appId = typeof __app_id !== 'undefined' ? __app_id : CONFIG.appIdFallback;
+                    const booksRef = collection(db, 'artifacts', appId, 'public', 'data', CONFIG.firebaseCollectionPath);
+                    const snapshot = await getDocs(booksRef);
+                    
+                    if (!snapshot.empty) {
+                        books = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    } else {
+                        console.log("В Firebase нет книг, используем локальные.");
+                    }
+                } catch (e) {
+                    console.error("Ошибка Firebase:", e);
+                    loadingText.innerText = "Ошибка базы, грузим локальную книгу...";
+                }
+            }
+
+            renderMenu(books);
+
+            // Грузим первую книгу из списка
+            if (books.length > 0) {
+                loadBook(books[0]);
+            } else {
+                loadingText.innerText = "Книги не найдены :(";
+            }
+        }
+
+        function renderMenu(books) {
+            booksListDiv.innerHTML = '';
+            // Показываем меню только если книг больше 1
+            if (books.length > 1) {
+                bookMenu.classList.remove('hidden');
+                books.forEach(book => {
+                    const btn = document.createElement('button');
+                    btn.className = "w-full text-left px-4 py-3 hover:bg-gray-100 border-b border-gray-100 last:border-0";
+                    btn.innerText = book.title;
+                    btn.onclick = () => {
+                        menuDropdown.classList.add('hidden');
+                        loadBook(book);
+                    };
+                    booksListDiv.appendChild(btn);
+                });
+            } else {
+                bookMenu.classList.add('hidden');
+            }
+        }
+
+        async function loadBook(book) {
+            // Сбрасываем состояния
+            currentSynth.cancel();
+            if (currentPageFlip) {
+                currentPageFlip.destroy();
+                flipBookDiv.innerHTML = '';
+            }
+            pageTexts = [];
+            
+            bookContainer.style.opacity = '0';
+            startScreen.classList.add('hidden');
+            loadingScreen.classList.remove('hidden');
+            loadingText.innerText = `Читаем PDF: ${book.title}...`;
+            startTitle.innerText = book.title;
+
+            try {
+                // 1. Загружаем PDF
+                const loadingTask = pdfjsLib.getDocument(book.pdfUrl);
+                const pdf = await loadingTask.promise;
+                const numPages = pdf.numPages;
+
+                // 2. Генерируем страницы (картинки + текст)
+                for (let i = 1; i <= numPages; i++) {
+                    loadingText.innerText = `Рендер страницы ${i} из ${numPages}...`;
+                    const page = await pdf.getPage(i);
+                    
+                    // Извлекаем текст
+                    const textContent = await page.getTextContent();
+                    const pageText = textContent.items.map(item => item.str).join(' ');
+                    pageTexts.push(pageText);
+
+                    // Рендерим картинку через Canvas
+                    const viewport = page.getViewport({ scale: 1.5 }); // Качество
+                    const canvas = document.createElement('canvas');
+                    const context = canvas.getContext('2d');
+                    canvas.width = viewport.width;
+                    canvas.height = viewport.height;
+
+                    await page.render({ canvasContext: context, viewport: viewport }).promise;
+                    
+                    // Создаем DOM элемент для Flipbook
+                    const pageDiv = document.createElement('div');
+                    pageDiv.className = 'page';
+                    pageDiv.style.backgroundImage = `url(${canvas.toDataURL('image/jpeg', 0.8)})`;
+                    flipBookDiv.appendChild(pageDiv);
+                }
+
+                // Убедимся, что страниц четное количество (для книги)
+                if (numPages % 2 !== 0) {
+                    const emptyPage = document.createElement('div');
+                    emptyPage.className = 'page';
+                    flipBookDiv.appendChild(emptyPage);
+                    pageTexts.push('');
+                }
+
+                // 3. Инициализируем перелистывание
+                currentPageFlip = new St.PageFlip(flipBookDiv, {
+                    width: 350, height: 500, size: "stretch",
+                    minWidth: 250, maxWidth: 500, minHeight: 350, maxHeight: 700,
+                    showCover: true, mobileScrollSupport: false
+                });
+
+                currentPageFlip.loadFromHTML(document.querySelectorAll('.page'));
+
+                // Привязываем озвучку к перелистыванию
+                currentPageFlip.on('flip', (e) => {
+                    const pageIndex = e.data; 
+                    readTextForPage(pageIndex);
+                });
+
+                // Показываем стартовый экран
+                loadingScreen.classList.add('hidden');
+                startScreen.classList.remove('hidden');
+
+            } catch (error) {
+                console.error(error);
+                loadingText.innerText = "Ошибка загрузки PDF! Проверь консоль или CORS.";
+            }
+        }
+
+        // Логика Озвучки
+        function readTextForPage(pageIndex) {
+            currentSynth.cancel(); // Останавливаем старую речь
+            
+            // Если это обложка (первая страница) - читаем название книги
+            // У FlipBook 0 - обложка, 1 - внутренняя левая, 2 - внутренняя правая
+            let textToRead = "";
+            if (pageIndex === 0) {
+                textToRead = startTitle.innerText;
+            } else {
+                // Пытаемся прочитать обе развернутые страницы (левую и правую)
+                const leftText = pageTexts[pageIndex] || "";
+                const rightText = pageTexts[pageIndex + 1] || "";
+                textToRead = `${leftText}. ${rightText}`;
+            }
+
+            if (textToRead.trim().length > 0) {
+                const utterance = new SpeechSynthesisUtterance(textToRead);
+                utterance.lang = CONFIG.voice.language;
+                utterance.pitch = CONFIG.voice.pitch;
+                utterance.rate = CONFIG.voice.rate;
+                currentSynth.speak(utterance);
+            }
+        }
+
+        // Кнопка Старт
+        startBtn.addEventListener('click', () => {
+            startScreen.classList.add('hidden');
+            bookContainer.style.opacity = '1';
+            // Озвучиваем первую страницу при открытии
+            readTextForPage(0);
+        });
+
+        // Запуск
+        initApp();
+
+    </script>
+</body>
+</html>
