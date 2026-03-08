@@ -140,8 +140,8 @@
                     loadingText.innerText = `Подготовка страницы ${i} из ${numPages}...`;
                     const page = await pdf.getPage(i);
                     
-                    // Уменьшаем масштаб, чтобы не перегрузить память
-                    const safeScale = Math.min(1.0, 800 / firstViewport.width);
+                    // Делаем масштаб поменьше, чтобы не перегрузить память
+                    const safeScale = Math.min(1.0, 600 / firstViewport.width);
                     const viewport = page.getViewport({ scale: safeScale });
                     
                     const canvas = document.createElement('canvas');
@@ -154,8 +154,8 @@
 
                     await page.render({ canvasContext: context, viewport: viewport }).promise;
                     
-                    // ВОЗВРАЩАЕМ ТОТ САМЫЙ МЕТОД, КОТОРЫЙ 100% РАБОТАЛ И ПОКАЗЫВАЛ КАРТИНКИ ИЗНАЧАЛЬНО!
-                    const imageUrl = canvas.toDataURL('image/jpeg', 0.85);
+                    // Максимально сжимаем для экономии памяти телефона
+                    const imageUrl = canvas.toDataURL('image/jpeg', 0.6);
 
                     const pageDiv = document.createElement('div');
                     pageDiv.className = 'page';
@@ -171,18 +171,18 @@
                     flipBookDiv.appendChild(emptyPage);
                 }
 
-                loadingText.innerText = "Готово!";
+                loadingText.innerText = "Склеиваем страницы...";
 
-                // Запускаем перелистывание (разворотами, без портретного режима)
+                // Запускаем перелистывание
                 pageFlipInstance = new St.PageFlip(flipBookDiv, {
                     width: baseWidth, 
                     height: baseHeight, 
-                    size: "fit", // Автоматически подгоняет под экран без обрезки
+                    size: "stretch", // ВОТ ТУТ БЫЛА МОЯ ОШИБКА! Слово fit крашило всё. 
                     minWidth: 200, maxWidth: 800, 
                     minHeight: 300, maxHeight: 1000,
                     showCover: true, 
                     mobileScrollSupport: false,
-                    usePortrait: false, // ЗАПРЕЩАЕМ режим одной страницы! Всегда 2 страницы.
+                    usePortrait: false, 
                     maxShadowOpacity: 0.5, 
                     drawShadow: true
                 });
@@ -197,7 +197,8 @@
 
             } catch (error) {
                 console.error(error);
-                loadingText.innerHTML = '<span class="text-red-400">Ошибка: Не могу найти book.pdf</span>';
+                // Теперь, если что-то не так, он напишет НАСТОЯЩУЮ причину, а не глупость
+                loadingText.innerHTML = `<span class="text-red-400 text-sm">Ошибка: ${error.message}</span>`;
             }
         }
 
