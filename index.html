@@ -2,8 +2,12 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
+    <!-- Отключаем масштабирование, чтобы книга не дергалась при тапах -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Моя Волшебная Книга</title>
+    
+    <!-- Скрипт Telegram Web App для управления экраном -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/page-flip/dist/js/page-flip.browser.min.js"></script>
@@ -12,40 +16,77 @@
     <style>
         body, html {
             margin: 0; padding: 0; width: 100%; height: 100%;
-            overflow: hidden; background-color: #1a1a2e;
+            overflow: hidden; 
+            /* Красивый атмосферный фон вместо белого */
+            background: radial-gradient(circle at center, #2b2b36 0%, #13131a 100%);
             touch-action: none; /* Оставляем только свайпы для книги */
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
 
-        .flip-book { box-shadow: 0 0 20px rgba(0, 0, 0, 0.8); }
-        .page {
-            background-color: #fff; border: solid 1px #e8e8e8;
-            overflow: hidden; position: relative;
-            background-size: cover; background-position: center;
+        /* Контейнер книги центрируем */
+        #book-container {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 10px; /* Небольшой отступ от краев экрана */
+            opacity: 0;
+            transition: opacity 1s ease-in-out;
         }
-        .page.--left { border-right: 0; box-shadow: inset -7px 0 30px -7px rgba(0, 0, 0, 0.4); }
-        .page.--right { border-left: 0; box-shadow: inset 7px 0 30px -7px rgba(0, 0, 0, 0.4); }
+
+        /* Тень под самой книгой */
+        .flip-book { 
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7); 
+            border-radius: 4px;
+        }
+
+        /* Стили страницы */
+        .page {
+            background-color: #fff; 
+            overflow: hidden; 
+            position: relative;
+            background-size: 100% 100%; /* Картинка растягивается ровно по странице без зазоров */
+            background-position: center;
+            background-repeat: no-repeat;
+        }
+
+        /* Имитация тени корешка книги для реалистичности */
+        .page.--left { border-right: 0; box-shadow: inset -10px 0 30px -10px rgba(0, 0, 0, 0.3); }
+        .page.--right { border-left: 0; box-shadow: inset 10px 0 30px -10px rgba(0, 0, 0, 0.3); }
 
         #loading-screen {
             position: absolute; top: 0; left: 0; right: 0; bottom: 0;
             display: flex; flex-direction: column; justify-content: center; align-items: center;
-            z-index: 50; transition: opacity 0.5s ease-out; background: #1a1a2e;
+            z-index: 50; 
+            background: radial-gradient(circle at center, #2b2b36 0%, #13131a 100%);
+            transition: opacity 0.5s ease-out;
         }
     </style>
 </head>
 <body>
 
-    <!-- Экран загрузки -->
+    <!-- Экран загрузки с красивой анимацией -->
     <div id="loading-screen">
-        <div class="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-white mb-4"></div>
-        <p class="text-white text-lg font-semibold">Открываем книгу...</p>
+        <div class="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-indigo-400 mb-6"></div>
+        <p id="loading-text" class="text-indigo-200 text-lg font-medium tracking-wide">Подготовка страниц...</p>
     </div>
 
     <!-- Контейнер для книги -->
-    <div class="absolute inset-0 flex justify-center items-center opacity-0 transition-opacity duration-1000" id="book-container">
+    <div id="book-container">
         <div class="flip-book" id="flip-book"></div>
     </div>
 
     <script>
+        // ==========================================
+        // МАГИЯ TELEGRAM: РАЗВОРАЧИВАЕМ НА ВЕСЬ ЭКРАН
+        // ==========================================
+        if (window.Telegram && window.Telegram.WebApp) {
+            window.Telegram.WebApp.ready();
+            window.Telegram.WebApp.expand(); // Принудительно открываем на весь экран
+            window.Telegram.WebApp.setHeaderColor('#13131a'); // Красим шапку телеграма в цвет нашего фона
+        }
+
         // ТВОЯ ССЫЛКА НА КНИГУ ЗДЕСЬ
         const PDF_URL = './book.pdf'; 
 
@@ -55,9 +96,10 @@
             const flipBookDiv = document.getElementById('flip-book');
             const loadingScreen = document.getElementById('loading-screen');
             const bookContainer = document.getElementById('book-container');
+            const loadingText = document.getElementById('loading-text');
 
             try {
-                // Загружаем PDF с дополнительными настройками стабильности
+                // Загружаем PDF
                 const loadingTask = pdfjsLib.getDocument({
                     url: PDF_URL,
                     cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
@@ -66,15 +108,22 @@
                 const pdf = await loadingTask.promise;
                 const numPages = pdf.numPages;
 
-                // Превращаем страницы в картинки
+                // Узнаем пропорции книги по первой странице, чтобы она не искажалась
+                const firstPage = await pdf.getPage(1);
+                const firstViewport = firstPage.getViewport({ scale: 1.0 });
+                const aspectRatio = firstViewport.height / firstViewport.width;
+                
+                // Базовая ширина для мобильного экрана
+                const baseWidth = 320; 
+                const baseHeight = baseWidth * aspectRatio;
+
+                // Превращаем страницы в легкие картинки (Blob URL)
                 for (let i = 1; i <= numPages; i++) {
+                    loadingText.innerText = `Рисуем страницу ${i} из ${numPages}...`;
                     const page = await pdf.getPage(i);
                     
-                    // ЖЕСТКО ограничиваем размер холста!
-                    // Иначе телефон сойдет с ума от нехватки памяти при отрисовке скана.
-                    const viewportOriginal = page.getViewport({ scale: 1.0 }); 
-                    const MAX_WIDTH = 800; // Безопасная ширина для мобилок
-                    const safeScale = Math.min(1.5, MAX_WIDTH / viewportOriginal.width);
+                    // Оптимальный размер: достаточно четко, но не убивает память
+                    const safeScale = Math.min(1.5, 1000 / firstViewport.width);
                     const viewport = page.getViewport({ scale: safeScale });
                     
                     const canvas = document.createElement('canvas');
@@ -82,38 +131,48 @@
                     canvas.width = viewport.width;
                     canvas.height = viewport.height;
 
-                    // ВАЖНО 1: Заливаем фон белым, чтобы спасти прозрачные PDF
+                    // Заливаем фон белым
                     context.fillStyle = '#ffffff';
                     context.fillRect(0, 0, canvas.width, canvas.height);
 
-                    // Рисуем PDF
+                    // Рисуем страницу на холсте
                     await page.render({ canvasContext: context, viewport: viewport }).promise;
                     
+                    // СОЗДАЕМ ЛЕГКУЮ КАРТИНКУ (убирает глюки 3D перелистывания!)
+                    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+                    const imageUrl = URL.createObjectURL(blob);
+
                     const pageDiv = document.createElement('div');
                     pageDiv.className = 'page';
+                    pageDiv.style.backgroundImage = `url(${imageUrl})`;
                     
-                    // ВАЖНО 2: Вставляем холст напрямую! Никаких base64-кодировок, убивающих память.
-                    canvas.style.width = '100%';
-                    canvas.style.height = '100%';
-                    canvas.style.objectFit = 'contain'; // Картинка не обрежется, а впишется в страницу
-                    pageDiv.appendChild(canvas);
-
                     flipBookDiv.appendChild(pageDiv);
                 }
 
-                // Делаем четное количество страниц (для 3D-эффекта)
+                // Делаем четное количество страниц для правильной работы обложки
                 if (numPages % 2 !== 0) {
                     const emptyPage = document.createElement('div');
                     emptyPage.className = 'page';
-                    emptyPage.style.backgroundColor = '#ffffff'; // Белая пустая страница
+                    emptyPage.style.backgroundColor = '#ffffff';
                     flipBookDiv.appendChild(emptyPage);
                 }
 
-                // Запускаем 3D-перелистывание
+                loadingText.innerText = "Открываем...";
+
+                // Запускаем 3D-перелистывание с настройками ИДЕАЛЬНЫМИ для телефона
                 const pageFlip = new St.PageFlip(flipBookDiv, {
-                    width: 350, height: 500, size: "stretch",
-                    minWidth: 250, maxWidth: 500, minHeight: 350, maxHeight: 700,
-                    showCover: true, mobileScrollSupport: false
+                    width: baseWidth, 
+                    height: baseHeight, 
+                    size: "stretch", // Растягиваем до краев разрешенной зоны
+                    minWidth: 280, 
+                    maxWidth: 500, 
+                    minHeight: 400, 
+                    maxHeight: 800,
+                    showCover: true, 
+                    mobileScrollSupport: false,
+                    usePortrait: true, // ВАЖНО: на телефоне будет показывать по 1 странице крупно!
+                    maxShadowOpacity: 0.4, // Мягкая тень при перелистывании
+                    drawShadow: true
                 });
 
                 pageFlip.loadFromHTML(document.querySelectorAll('.page'));
@@ -127,11 +186,11 @@
 
             } catch (error) {
                 console.error(error);
-                loadingScreen.innerHTML = '<p class="text-red-400">Ой, не удалось загрузить PDF :( Проверь название файла.</p>';
+                loadingText.innerHTML = '<span class="text-red-400">Ошибка загрузки. Проверь файл book.pdf!</span>';
             }
         }
 
-        // Запускаем магию!
+        // Запускаем!
         initBook();
     </script>
 </body>
